@@ -1,22 +1,18 @@
 /*
 *       LOADER for PSP Prx files
-*       Tested on IDA Pro 6.1
+*       Tested on IDA Pro 7.5 sp3
 */
 
-#include <idaldr.h>
+#include "../idaldr.h"
 
 #include "stdio.h"
 #include "stdlib.h"
 #include "string.h"
 
 #include "prxldr.h"
-#include "sceLibNids.c"
-
-//----------------------------------------------------------------------
-ea_t base_addr = EBOOT_BASE_ADDR;
+#include "sceLibNids.h"
 
 
-//----------------------------------------------------------------------
 int find_section(Prx_info *prx, const char *name)
 {
 	int i, ret = -1;
@@ -66,10 +62,10 @@ int load_section_headers(u8 *buf, Prx_info *prx)
 	Elf32_Shdr *sh;
 	Elf32_Shdr *shstrtab = NULL;
 	Elf32_Ehdr *ehdr = prx->ehdr32;
-	u8 *start = buf;
+	u8 *start = NULL;
 
 	sht_size = ehdr->e_shnum*ehdr->e_shentsize;
-	if ((int)(ehdr->e_shoff + sht_size)>prx->prx_size) {
+	if ((size_t)ehdr->e_shoff + (size_t)sht_size > prx->prx_size) {
 		msg("Invalid section table! ignore it.\n");
 		ehdr->e_shnum = 0;
 		ehdr->e_shoff = 0;
@@ -81,15 +77,15 @@ int load_section_headers(u8 *buf, Prx_info *prx)
 	if (NULL == prx->shdr32)
 		return -1;
 
-	start += ehdr->e_shoff;
+	start = buf + ehdr->e_shoff;
 	for (i = 0, sh = prx->shdr32; i<ehdr->e_shnum; i++, sh++) {
 		*sh = *(Elf32_Shdr *)start;
 		start += sizeof(Elf32_Shdr);
 	}
 
-	if ((ehdr->e_shstrndx >0) && (ehdr->e_shstrndx < ehdr->e_shnum)) {
+	if ((ehdr->e_shstrndx > 0) && (ehdr->e_shstrndx < ehdr->e_shnum)) {
 		shstrtab = &prx->shdr32[ehdr->e_shstrndx];
-		prx->secname = (char **)qalloc(ehdr->e_shnum * 4);
+		prx->secname = (char **)qalloc(ehdr->e_shnum * sizeof(char*));
 		for (i = 0, sh = prx->shdr32; i<ehdr->e_shnum; i++, sh++) {
 			prx->secname[i] = (char *)(buf + shstrtab->sh_offset + prx->shdr32[i].sh_name);
 		}
@@ -116,7 +112,7 @@ int load_program_headers(u8 *buf, Prx_info *prx)
 	return i;
 }
 
-int load_symbols(u8 *buf, Elf32_Ehdr *ehdr32)
+int load_symbols(u8 *buf, Prx_info* prx)
 {
 	return 0;
 }
@@ -133,21 +129,24 @@ int load_sections(u8 *buf, Prx_info *prx)
 	Elf32_Shdr *sh = prx->shdr32;
 	segment_t *s;
 
+	if (sh == NULL)
+		return -2;
 	for (i = 1, sh++; i < prx->ehdr32->e_shnum; i++, sh++) {
 		if (sh->sh_type != SHT_PROGBITS)
 			continue;
 		if (sh->sh_size == 0)
 			continue;
-
-		if (sh->sh_flags & SHF_ALLOC) {
-			mem2base(buf + sh->sh_offset, sh->sh_addr + base_addr, sh->sh_addr + sh->sh_size + base_addr, -1);
-			if (sh->sh_flags & SHF_EXECINSTR)
-				create32(0, sh->sh_addr + base_addr, sh->sh_addr + sh->sh_size + base_addr, prx->secname[i], CLASS_CODE);
-			else
-				create32(0, sh->sh_addr + base_addr, sh->sh_addr + sh->sh_size + base_addr, prx->secname[i], CLASS_DATA);
-			s = getseg(sh->sh_addr + base_addr);
-			set_segm_addressing(s, 1);
-		}
+		
+		if ((sh->sh_flags& SHF_ALLOC) == 0)
+			continue;
+		
+		mem2base(buf + sh->sh_offset, sh->sh_addr + prx->base_addr, sh->sh_addr + sh->sh_size + prx->base_addr, -1);
+		if (sh->sh_flags & SHF_EXECINSTR)
+			create32(0, sh->sh_addr + prx->base_addr, sh->sh_addr + sh->sh_size + prx->base_addr, prx->secname[i], CLASS_CODE);
+		else
+			create32(0, sh->sh_addr + prx->base_addr, sh->sh_addr + sh->sh_size + prx->base_addr, prx->secname[i], CLASS_DATA);
+		s = getseg(sh->sh_addr + prx->base_addr);
+		set_segm_addressing(s, 1);
 	}
 
 	return i;
@@ -165,12 +164,12 @@ int load_programs(u8 *buf, Prx_info *prx)
 		if (ph->p_filesz == 0)
 			continue;
 
-		mem2base(buf + ph->p_offset, ph->p_vaddr + base_addr, ph->p_vaddr + ph->p_filesz + base_addr, -1);
+		mem2base(buf + ph->p_offset, ph->p_vaddr + prx->base_addr, ph->p_vaddr + ph->p_filesz + prx->base_addr, -1);
 		if (ph->p_flags & PF_X)
-			create32(0, ph->p_vaddr + base_addr, ph->p_vaddr + ph->p_filesz + base_addr, ".text", CLASS_CODE);
+			create32(0, ph->p_vaddr + prx->base_addr, ph->p_vaddr + ph->p_filesz + prx->base_addr, ".text", CLASS_CODE);
 		else
-			create32(0, ph->p_vaddr + base_addr, ph->p_vaddr + ph->p_filesz + base_addr, ".data", CLASS_DATA);
-		s = getseg(ph->p_vaddr + base_addr);
+			create32(0, ph->p_vaddr + prx->base_addr, ph->p_vaddr + ph->p_filesz + prx->base_addr, ".data", CLASS_DATA);
+		s = getseg(ph->p_vaddr + prx->base_addr);
 		set_segm_addressing(s, 1);
 	}
 
@@ -188,7 +187,6 @@ int create_bss(Prx_info *prx)
 
 	// get bss info from programs header
 	ph = prx->phdr32;
-
 	for (i = 0; i<prx->ehdr32->e_phnum; i++) {
 		if (ph[i].p_type == PT_LOAD) {
 			// bss_size are caculated from last ph.
@@ -197,7 +195,7 @@ int create_bss(Prx_info *prx)
 		}
 	}
 
-	create32(0, bss_addr + base_addr, bss_addr + base_addr + bss_size, ".bss", CLASS_BSS);
+	create32(0, bss_addr + prx->base_addr, bss_addr + prx->base_addr + bss_size, ".bss", CLASS_BSS);
 
 	return 0;
 }
@@ -239,20 +237,20 @@ int count_relocs(u8 *buf, Prx_info *prx)
 				return -1;
 			}
 
-			part1s = *(u8*)(ph->p_offset + buf + 2);
-			part2s = *(u8*)(ph->p_offset + buf + 3);
+			part1s  = *(u8*)(ph->p_offset + buf + 2);
+			part2s  = *(u8*)(ph->p_offset + buf + 3);
 			block1s = *(u8*)(ph->p_offset + buf + 4);
 			block1 = ph->p_offset + buf + 4;
 			block2 = block1 + block1s;
 			block2s = block2[0];
 			pos = block2 + block2s;
-			end = ph->p_offset + ph->p_filesz + buf;
+			end = (size_t)ph->p_offset + (size_t)ph->p_filesz + buf;
 			while (pos < end) {
 				u32 cmd, part1, temp;
 				cmd = pos[0] | (pos[1] << 16);
 				pos += 2;
 				temp = (cmd << (16 - part1s)) & 0xFFFF;
-				temp = (temp >> (16 - part1s)) & 0xFFFF;
+				temp = (temp>> (16 - part1s)) & 0xFFFF;
 				if (temp >= block1s) {
 					msg("[ERRO] Invalid cmd1 index\n");
 					return -1;
@@ -260,10 +258,10 @@ int count_relocs(u8 *buf, Prx_info *prx)
 				part1 = block1[temp];
 				pos += (part1 & 0x06);
 				if ((part1 & 0x01) != 0) {
-					if (part1 & 0x38 == 0x10) {
+					if ((part1 & 0x38) == 0x10) {
 						pos += 2;
 					}
-					else if (part1 & 0x38 == 0x18) {
+					else if ((part1 & 0x38) == 0x18) {
 						pos += 4;
 					}
 				}
@@ -281,7 +279,6 @@ int load_relocs(u8 *buf, Prx_info *prx)
 	int i, j, count, typea_from_section = 0;
 	Elf32_Rel *reloc;
 	int  iCurrRel = 0;
-
 
 	u8 *block1, *block2, *pos, *end;
 	u32 block1s, block2s, part1s, part2s;
@@ -335,12 +332,12 @@ int load_relocs(u8 *buf, Prx_info *prx)
 		else if (ph->p_type == PT_PRXRELOC2) {
 			part1s = *(u8*)(ph->p_offset + buf + 2);//m_pElfPrograms[iLoop].pData[2];
 			part2s = *(u8*)(ph->p_offset + buf + 3);//m_pElfPrograms[iLoop].pData[3];
-			block1s = *(u8*)(ph->p_offset + buf + 4);//m_pElfPrograms[iLoop].pData[4];
+			block1s= *(u8*)(ph->p_offset + buf + 4);//m_pElfPrograms[iLoop].pData[4];
 			block1 = ph->p_offset + buf + 4;//&m_pElfPrograms[iLoop].pData[4];
 			block2 = block1 + block1s;
 			block2s = block2[0];
 			pos = block2 + block2s;
-			end = ph->p_offset + ph->p_filesz + buf;//&m_pElfPrograms[iLoop].pData[m_pElfPrograms[iLoop].iFilesz];
+			end = (size_t)ph->p_offset + (size_t)ph->p_filesz + buf;//&m_pElfPrograms[iLoop].pData[m_pElfPrograms[iLoop].iFilesz];
 
 			for (nbits = 1; (1 << nbits) < (int)iLoop; nbits++) {
 				if (nbits >= 33) {
@@ -353,7 +350,7 @@ int load_relocs(u8 *buf, Prx_info *prx)
 			while (pos < end) {
 				cmd = pos[0] | (pos[1] << 8);
 				pos += 2;
-				temp1 = (cmd << (16 - part1s)) & 0xFFFF;
+				temp1 = (cmd   << (16 - part1s)) & 0xFFFF;
 				temp1 = (temp1 >> (16 - part1s)) & 0xFFFF;
 				if (temp1 >= block1s) {
 					msg("[ERRO] Invalid part1 index\n");
@@ -517,8 +514,8 @@ int fix_relocs(u8 *buf, Prx_info *prx)
 		rel = &prx->elfreloc[i];
 		iOfsPH = rel->symbol & 0xFF;
 		iValPH = (rel->symbol >> 8) & 0xFF;
-		dwRealOfs = base_addr + rel->offset + prx->phdr32[iOfsPH].p_vaddr;
-		dwCurrBase = base_addr + prx->phdr32[iValPH].p_vaddr;
+		dwRealOfs = prx->base_addr + rel->offset + prx->phdr32[iOfsPH].p_vaddr;
+		dwCurrBase = prx->base_addr + prx->phdr32[iValPH].p_vaddr;
 		switch (prx->elfreloc[i].type) {
 		case R_MIPS_HI16: {
 			u32 inst;
@@ -536,7 +533,7 @@ int fix_relocs(u8 *buf, Prx_info *prx)
 			//msg("Matching low at %d\n", i);
 			if (i < prx->relocs_cnt) {
 				//loinst = LW(*((u32*) m_vMem.GetPtr(m_pElfRelocs[iLoop].offset+ofsph)));
-				loinst = get_dword(prx->elfreloc[i].offset + ofsph + base_addr);
+				loinst = get_dword(prx->elfreloc[i].offset + ofsph + prx->base_addr);
 			}
 			else {
 				loinst = 0;
@@ -546,19 +543,19 @@ int fix_relocs(u8 *buf, Prx_info *prx)
 			lowaddr = addr & 0xFFFF;
 			hiaddr = (((addr >> 15) + 1) >> 1) & 0xFFFF;
 			while (base < i) {
-				inst = get_dword(prx->elfreloc[base].offset + ofsph + base_addr);
-				//msg("REL R_MIPS_HI16 Patching VAddr[0x%0.8x] [0x%0.8x] -> ", prx->elfreloc[base].offset+ofsph+base_addr, inst);
+				inst = get_dword(prx->elfreloc[base].offset + ofsph + prx->base_addr);
+				//msg("REL R_MIPS_HI16 Patching VAddr[0x%0.8x] [0x%0.8x] -> ", prx->elfreloc[base].offset+ofsph+prx->base_addr, inst);
 				inst = (inst & ~0xFFFF) | hiaddr;
-				put_dword(prx->elfreloc[base].offset + ofsph + base_addr, inst);
+				put_dword(prx->elfreloc[base].offset + ofsph + prx->base_addr, inst);
 				//msg(" [0x%0.8x]\n", inst);
 				base++;
 			}
 			while (i < prx->relocs_cnt) {
-				inst = get_dword(prx->elfreloc[i].offset + ofsph + base_addr);
-				//msg("REL R_MIPS_HI16 Patching VAddr[0x%0.8x] [0x%0.8x] -> ", prx->elfreloc[i].offset+ofsph+base_addr, inst);
+				inst = get_dword(prx->elfreloc[i].offset + ofsph + prx->base_addr);
+				//msg("REL R_MIPS_HI16 Patching VAddr[0x%0.8x] [0x%0.8x] -> ", prx->elfreloc[i].offset+ofsph+prx->base_addr, inst);
 				if ((inst & 0xFFFF) != (loinst & 0xFFFF)) break;
 				inst = (inst & ~0xFFFF) | lowaddr;
-				put_dword(prx->elfreloc[i].offset + ofsph + base_addr, inst);
+				put_dword(prx->elfreloc[i].offset + ofsph + prx->base_addr, inst);
 				//msg(" [0x%0.8x]\n", inst);
 
 
@@ -651,7 +648,7 @@ int do_relocs(u8 *buf, Prx_info *prx)
 	if (prx->relocs_cnt < 0)
 		return -1;
 
-	prx->elfreloc = (ElfReloc *)qalloc(sizeof(ElfReloc)*prx->relocs_cnt);
+	prx->elfreloc = (ElfReloc *)qalloc(sizeof(ElfReloc) * prx->relocs_cnt);
 	prx->relocs_cnt = load_relocs(buf, prx);
 	fix_relocs(buf, prx);
 
@@ -794,6 +791,18 @@ int load_single_export(u8 *buf, Prx_info *prx, PspModuleExport *pExport, u32 add
 	return count;
 }
 
+void create_named_dword(ea_t ea, const char* fmt, ...)
+{
+	char name[256];
+	va_list args;
+	va_start(args, fmt);
+	vsprintf(name, fmt, args);
+	va_end(args);
+
+	create_dword(ea, 4);
+	set_name(ea, name);
+}
+
 
 bool load_exports(u8 *buf, Prx_info *prx)
 {
@@ -801,30 +810,22 @@ bool load_exports(u8 *buf, Prx_info *prx)
 	u32 exp_base;
 	u32 exp_end;
 	u32 count;
-	PspModuleExport exports;
-	PspModuleExport *pExports;
+	PspModuleExport exp;
+	ea_t export_ea;
 	int idx = 0;
-	char sym_name[128];
 
 	exp_base = prx->pModInfo->exports;
 	exp_end = prx->pModInfo->exp_end;
 	if (exp_base != 0) {
 		while ((exp_end - exp_base) >= sizeof(PspModuleExport)) {
-			pExports = (PspModuleExport*)(exp_base + base_addr);
-			if (get_bytes(&exports, sizeof(PspModuleExport), exp_base + base_addr)) {
-				create_dword((ea_t)(&pExports->counts), 4);
-				sprintf(sym_name, "export_%d%s", idx, "_counts");
-				set_name((ea_t)(&pExports->counts), sym_name);
-				create_dword((ea_t)(&pExports->exports), 4);
-				sprintf(sym_name, "export_%d%s", idx, "_exports");
-				set_name((ea_t)(&pExports->exports), sym_name);
-				create_dword((ea_t)(&pExports->flags), 4);
-				sprintf(sym_name, "export_%d%s", idx, "_flags");
-				set_name((ea_t)(&pExports->flags), sym_name);
-				create_dword((ea_t)(&pExports->name), 4);
-				sprintf(sym_name, "export_%d%s", idx, "");
-				set_name((ea_t)(&pExports->name), sym_name);
-				count = load_single_export(buf, prx, &exports, exp_base, idx);
+			export_ea = exp_base + prx->base_addr;
+			if (get_bytes(&exp, sizeof(PspModuleExport), export_ea)) {
+				create_named_dword(export_ea + offsetof(PspModuleExport, counts),  "export_%d%s", idx, "_counts");
+				create_named_dword(export_ea + offsetof(PspModuleExport, exports), "export_%d%s", idx, "_exports");
+				create_named_dword(export_ea + offsetof(PspModuleExport, flags),   "export_%d%s", idx, "_flags");
+				create_named_dword(export_ea + offsetof(PspModuleExport, name),    "export_%d%s", idx, "");
+				
+				count = load_single_export(buf, prx, &exp, exp_base, idx);
 				if (count > 0) {
 					exp_base += (count * sizeof(u32));
 				}
@@ -981,10 +982,9 @@ bool load_imports(u8 *buf, Prx_info *prx)
 	u32 imp_base;
 	u32 imp_end;
 	u32 count;
-	PspModuleImport imports;
-	PspModuleImport* pImports;
+	PspModuleImport imp;
+	ea_t import_ea;
 	int idx = 0;
-	char sym_name[128];
 
 	imp_base = prx->pModInfo->imports;
 	imp_end = prx->pModInfo->imp_end;
@@ -992,24 +992,15 @@ bool load_imports(u8 *buf, Prx_info *prx)
 
 	if (imp_base != 0) {
 		while ((imp_end - imp_base) >= PSP_IMPORT_BASE_SIZE) {
-			pImports = (PspModuleImport*)(imp_base + base_addr);
-			if (get_bytes(&imports, sizeof(PspModuleImport), imp_base + base_addr)) {
-				create_dword((ea_t)(&pImports->counts), 4);
-				sprintf(sym_name, "import_%d%s", idx, "_counts");
-				set_name((ea_t)(&pImports->counts), sym_name);
-				create_dword((ea_t)(&pImports->flags), 4);
-				sprintf(sym_name, "import_%d%s", idx, "_flags");
-				set_name((ea_t)(&pImports->flags), sym_name);
-				create_dword((ea_t)(&pImports->name), 4);
-				sprintf(sym_name, "import_%d%s", idx, "");
-				set_name((ea_t)(&pImports->name), sym_name);
-				create_dword((ea_t)(&pImports->nids), 4);
-				sprintf(sym_name, "import_%d%s", idx, "_nids");
-				set_name((ea_t)(&pImports->nids), sym_name);
-				create_dword((ea_t)(&pImports->funcs), 4);
-				sprintf(sym_name, "import_%d%s", idx, "_funcs");
-				set_name((ea_t)(&pImports->funcs), sym_name);
-				count = load_single_import(buf, prx, &imports, imp_base, idx);
+			import_ea = imp_base + prx->base_addr;
+			if (get_bytes(&imp, sizeof(PspModuleImport), import_ea)) {
+				create_named_dword(import_ea + offsetof(PspModuleImport, counts), "import_%d%s", idx, "_counts");
+				create_named_dword(import_ea + offsetof(PspModuleImport, flags),  "import_%d%s", idx, "_flags");
+				create_named_dword(import_ea + offsetof(PspModuleImport, name),   "import_%d%s", idx, "");
+				create_named_dword(import_ea + offsetof(PspModuleImport, nids),   "import_%d%s", idx, "_nids");
+				create_named_dword(import_ea + offsetof(PspModuleImport, funcs),  "import_%d%s", idx, "_funcs");
+				
+				count = load_single_import(buf, prx, &imp, imp_base, idx);
 				if (count > 0) {
 					imp_base += (count * sizeof(u32));
 				}
@@ -1033,64 +1024,59 @@ bool load_imports(u8 *buf, Prx_info *prx)
 int load_module_info(u8 *buf, Prx_info *prx)
 {
 	int modinfo_idx;
-	PspModuleInfo *pModInfo = NULL;
+	ea_t mod_info_ea = NULL;
 
 	modinfo_idx = find_section(prx, PSP_MODULE_INFO_NAME);
-
 	if (modinfo_idx > 0) {
 		prx->pModInfo = (PspModuleInfo*)(buf + prx->shdr32[modinfo_idx].sh_offset);
-		pModInfo = (PspModuleInfo*)(prx->shdr32[modinfo_idx].sh_addr + base_addr);
+		mod_info_ea = prx->shdr32[modinfo_idx].sh_addr + prx->base_addr;
 	}
-	else {
-		if (prx->ehdr32->e_phnum>0) {
-			u32 vaddr, paddr;
-			// if no section table found, 
-			// ph[0].p_paddr is the offset of .rodata.sceModuleInfo
-			paddr = prx->phdr32[0].p_paddr;
-			paddr &= 0x0fffffff;
-			prx->pModInfo = (PspModuleInfo*)(buf + paddr);
+	else if (prx->ehdr32->e_phnum > 0) {
+		u32 vaddr, paddr;
+		// if no section table found, 
+		// ph[0].p_paddr is the offset of .rodata.sceModuleInfo
+		paddr = prx->phdr32[0].p_paddr;
+		paddr &= 0x0fffffff;
+		prx->pModInfo = (PspModuleInfo*)(buf + paddr);
 
-			vaddr = prx->phdr32[0].p_vaddr + base_addr;
-			vaddr += paddr - prx->phdr32[0].p_offset;
+		vaddr = prx->phdr32[0].p_vaddr + prx->base_addr;
+		vaddr += paddr - prx->phdr32[0].p_offset;
 
-			pModInfo = (PspModuleInfo*)(vaddr);
-		}
+		mod_info_ea = vaddr;
 	}
+	else
+		return -1;
 
 	if (NULL != prx->pModInfo) {
-		add_extra_line(base_addr, true, "\nPrx Module Info:\n");
-		add_extra_line(base_addr, true, "Name: %s", prx->pModInfo->name);
-		add_extra_line(base_addr, true, "Flags: 0x%08X", prx->pModInfo->flags);
-		add_extra_line(base_addr, true, "GP: 0x%08X", prx->pModInfo->gp);
-		add_extra_line(base_addr, true, "Exports: 0x%08X, Exp_end: 0x%08X", prx->pModInfo->exports + base_addr, prx->pModInfo->exp_end + base_addr);
-		add_extra_line(base_addr, true, "Imports: 0x%08X, Imp_end: 0x%08X", prx->pModInfo->imports + base_addr, prx->pModInfo->imp_end + base_addr);
+		add_extra_line(prx->base_addr, true, "\nPrx Module Info:\n");
+		add_extra_line(prx->base_addr, true, "Name: %s", prx->pModInfo->name);
+		add_extra_line(prx->base_addr, true, "Flags: 0x%08X", prx->pModInfo->flags);
+		add_extra_line(prx->base_addr, true, "GP: 0x%08X", prx->pModInfo->gp);
+		add_extra_line(prx->base_addr, true, "Exports: 0x%08X, Exp_end: 0x%08X", prx->pModInfo->exports + prx->base_addr, prx->pModInfo->exp_end + prx->base_addr);
+		add_extra_line(prx->base_addr, true, "Imports: 0x%08X, Imp_end: 0x%08X", prx->pModInfo->imports + prx->base_addr, prx->pModInfo->imp_end + prx->base_addr);
 
-		set_name((ea_t)(pModInfo->name), "_module_name");
-		create_dword((ea_t)(&pModInfo->flags), 4);
-		set_name((ea_t)(&pModInfo->flags), "_module_flags");
-		create_dword((ea_t)(&pModInfo->gp), 4);
-		set_name((ea_t)(&pModInfo->gp), "_module_gp");
-		create_dword((ea_t)(&pModInfo->exports), 4);
-		set_name((ea_t)(&pModInfo->exports), "_module_exports");
-		create_dword((ea_t)(&pModInfo->exp_end), 4);
-		set_name((ea_t)(&pModInfo->exp_end), "_module_exp_end");
-		create_dword(prx->pModInfo->exp_end + base_addr, 4);
-		set_name(prx->pModInfo->exp_end + base_addr, "_exp_end");
-		create_dword((ea_t)(&pModInfo->imports), 4);
-		set_name((ea_t)(&pModInfo->imports), "_module_imports");
-		create_dword((ea_t)(&pModInfo->imp_end), 4);
-		set_name((ea_t)(&pModInfo->imp_end), "_module_imp_end");
-		create_dword(prx->pModInfo->imp_end + base_addr, 4);
-		set_name(prx->pModInfo->imp_end + base_addr, "_imp_end");
+		set_name(mod_info_ea + offsetof(PspModuleInfo, name), "_module_name");
+		create_named_dword(mod_info_ea + offsetof(PspModuleInfo, flags), "_module_flags");
+		create_named_dword(mod_info_ea + offsetof(PspModuleInfo, gp), "_module_gp");
+		create_named_dword(mod_info_ea + offsetof(PspModuleInfo, exports), "_module_exports");
+		create_named_dword(mod_info_ea + offsetof(PspModuleInfo, exp_end), "_module_exp_end");
+		create_named_dword(mod_info_ea + offsetof(PspModuleInfo, exp_end)+ prx->base_addr, "_exp_end");
+		create_named_dword(mod_info_ea + offsetof(PspModuleInfo, imports), "_module_imports");
+		create_named_dword(mod_info_ea + offsetof(PspModuleInfo, imp_end), "_module_imp_end");
+		create_named_dword(mod_info_ea + offsetof(PspModuleInfo, imp_end)+ prx->base_addr, "_imp_end");
 	}
 
 	return 0;
 }
 
-int load_single_lib_nids(Prx_info *prx, u8 *start, u8 *end, int idx)
+int load_single_lib_nids(Prx_info *prx, u8 *start, u8 *end, size_t idx)
 {
-	int nid_cnt = 0, i;
+	char nid_str[64];
+	size_t nid_cnt = 0, i;
 	u8 *p, *q, *s;
+	
+	if (prx==NULL || start == NULL || end == NULL)
+		return -3;
 	p = start;
 	while (p<end) {
 		q = (u8 *)strstr((char *)p, "<NID>");
@@ -1108,21 +1094,24 @@ int load_single_lib_nids(Prx_info *prx, u8 *start, u8 *end, int idx)
 	for (i = 0; i<nid_cnt; i++) {
 		q = (u8 *)strstr((char *)p, "<NID>");
 		s = (u8 *)strstr((char *)p, "</NID>");
-		strncpy(prx->plibnid[idx].pNid[i].name, (const char*)q + 5, s - q - 5);
-		prx->plibnid[idx].pNid[i].nid = strtoul(prx->plibnid[idx].pNid[i].name, NULL, 16);
+		if (q == NULL || s == NULL)
+			return -2;
+		strncpy(nid_str, (const char*)q + 5, s - q - 5);
+		nid_str[sizeof(nid_str) - 1] = '\0';
+		prx->plibnid[idx].pNid[i].nid = strtoul(nid_str, NULL, 16);
 		p = s;
 		q = (u8 *)strstr((char *)p, "<NAME>");
 		s = (u8 *)strstr((char *)p, "</NAME>");
-		memset(prx->plibnid[idx].pNid[i].name, 0, 64);
+		memset(prx->plibnid[idx].pNid[i].name, 0, sizeof(prx->plibnid[idx].pNid[i].name));
 		strncpy(prx->plibnid[idx].pNid[i].name, (const char*)q + 6, s - q - 6);
 		p = s;
 	}
 	return 0;
 }
 
-int load_lib_nids(Prx_info *prx, u8 *start, u8 *end)
+size_t load_lib_nids(Prx_info *prx, u8 *start, u8 *end)
 {
-	int lib_cnt = 0, i, j;
+	size_t lib_cnt = 0, i, j;
 	u8 *p, *q, *s, *t;
 
 	p = start;
@@ -1147,14 +1136,13 @@ int load_lib_nids(Prx_info *prx, u8 *start, u8 *end)
 		t = (u8 *)strstr((char *)p, "</NAME>");
 		strncpy(prx->plibnid[i].name, (const char*)s + 6, t - s - 6);
 		p = q + 1;
-
 	}
 
 	/* load syslib */
-	prx->plibnid[i].cnt = sizeof(g_syslib) / sizeof(g_syslib[0]);
+	prx->plibnid[i].cnt = g_syslib_cnt;
 	prx->plibnid[i].pNid = (NidEntry *)qalloc(prx->plibnid[i].cnt * sizeof(NidEntry));
 	memset(prx->plibnid[i].pNid, 0, prx->plibnid[i].cnt * sizeof(NidEntry));
-	for (j = 0; j<(int)prx->plibnid[i].cnt; j++) {
+	for (j = 0; j<prx->plibnid[i].cnt; j++) {
 		strcpy(prx->plibnid[i].pNid[j].name, g_syslib[j].name);
 		prx->plibnid[i].pNid[j].nid = g_syslib[j].nid;
 	}
@@ -1162,10 +1150,10 @@ int load_lib_nids(Prx_info *prx, u8 *start, u8 *end)
 
 	/* load sceLibc */
 	i++;
-	prx->plibnid[i].cnt = sizeof(g_sceLibc) / sizeof(g_sceLibc[0]);
+	prx->plibnid[i].cnt = g_sceLibc_cnt;
 	prx->plibnid[i].pNid = (NidEntry *)qalloc(prx->plibnid[i].cnt * sizeof(NidEntry));
 	memset(prx->plibnid[i].pNid, 0, prx->plibnid[i].cnt * sizeof(NidEntry));
-	for (j = 0; j<(int)prx->plibnid[i].cnt; j++) {
+	for (j = 0; j<prx->plibnid[i].cnt; j++) {
 		strcpy(prx->plibnid[i].pNid[j].name, g_sceLibc[j].name);
 		prx->plibnid[i].pNid[j].nid = g_sceLibc[j].nid;
 	}
@@ -1173,10 +1161,10 @@ int load_lib_nids(Prx_info *prx, u8 *start, u8 *end)
 
 	/* load sceLibm */
 	i++;
-	prx->plibnid[i].cnt = sizeof(g_sceLibm) / sizeof(g_sceLibm[0]);
+	prx->plibnid[i].cnt = g_sceLibm_cnt;
 	prx->plibnid[i].pNid = (NidEntry *)qalloc(prx->plibnid[i].cnt * sizeof(NidEntry));
 	memset(prx->plibnid[i].pNid, 0, prx->plibnid[i].cnt * sizeof(NidEntry));
-	for (j = 0; j<(int)prx->plibnid[i].cnt; j++) {
+	for (j = 0; j<prx->plibnid[i].cnt; j++) {
 		strcpy(prx->plibnid[i].pNid[j].name, g_sceLibm[j].name);
 		prx->plibnid[i].pNid[j].nid = g_sceLibm[j].nid;
 	}
@@ -1220,19 +1208,18 @@ int load_nid_tbl(Prx_info *prx)
 static int idaapi accept_file(qstring *fileformatname, qstring *processor, linput_t *li, const char *filename)
 {
 	if (!is_prx(li))
-		return false;
+		return 0;
 
 	fileformatname->sprnt("PSP Prx file");
 	processor->sprnt("psp");
 
-	return 1;
+	return (1 | ACCEPT_FIRST);
 }
 
 /* fname is used to indcate which ldr is used, like "PSP Prx Loader" */
 static void idaapi load_file(linput_t *li, ushort neflag, const char * /*fname*/)
 {
 	u8 *buf;
-	int filesize;
 	Prx_info prx;
 	memset(&prx, 0, sizeof(Prx_info));
 
@@ -1241,7 +1228,6 @@ static void idaapi load_file(linput_t *li, ushort neflag, const char * /*fname*/
 		if (!set_processor_type("psp", SETPROC_LOADER_NON_FATAL))
 			set_processor_type("mipsl", SETPROC_LOADER);
 	}
-
 
 	load_nid_tbl(&prx);
 
@@ -1254,18 +1240,19 @@ static void idaapi load_file(linput_t *li, ushort neflag, const char * /*fname*/
 
 	prx.ehdr32 = (Elf32_Ehdr *)buf;
 
+	ea_t base_addr = EBOOT_BASE_ADDR;
 	if (prx.ehdr32->e_entry<0x08800000)
 		ask_addr(&base_addr, "Set base address for relocation:");
 	else
 		base_addr = 0;
+	prx.base_addr = base_addr;
 
 	load_section_headers(buf, &prx);
-
 	if (load_program_headers(buf, &prx)<0) {
 		goto EXIT;
 	}
 
-	//load_symbols(buf, ehdr32);
+	//load_symbols(buf, &prx);
 	if (prx.ehdr32->e_shnum > 0) {
 		load_sections(buf, &prx);
 	}
@@ -1304,7 +1291,7 @@ EXIT:
 //      LOADER DESCRIPTION BLOCK
 //
 //----------------------------------------------------------------------
-loader_t LDSC =
+idaman loader_t ida_module_data LDSC =
 {
 	IDP_INTERFACE_VERSION,
 	0,

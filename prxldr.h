@@ -318,18 +318,13 @@ struct LibNidEntry
 {
 	NidEntry *pNid;
 	char name[64];
-	u32 cnt;
-};
-
-struct SyslibEntry
-{
-	unsigned int nid;
-	const char *name;
+	size_t cnt;
 };
 
 struct Prx_info
 {
-	int prx_size;
+	ea_t base_addr;
+	size_t prx_size;
 
 	Elf32_Ehdr *ehdr32;
 	Elf32_Shdr *shdr32;
@@ -344,7 +339,7 @@ struct Prx_info
 	PspLibExport *plibexp;
 	PspLibImport *plibimp;
 	LibNidEntry *plibnid;
-	int lib_cnt;
+	size_t lib_cnt;
 };
 
 #pragma pack(pop)
