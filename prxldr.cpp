@@ -4,6 +4,8 @@
 */
 
 #include "../idaldr.h"
+#include <expr.hpp>
+#include <typeinf.hpp>
 
 #include "stdio.h"
 #include "stdlib.h"
@@ -117,10 +119,45 @@ int load_symbols(u8 *buf, Prx_info* prx)
 	return 0;
 }
 
-static void create32(sel_t sel, ea_t startEA, ea_t endEA, const char *name, const char *classname)
+static void create32(sel_t sel, ea_t startEA, ea_t endEA, const char *name, const char *classname, int perms=0, int align=1)
 {
-	if (!add_segm(sel, startEA, endEA, name, classname))
-		loader_failure();
+//	if (!add_segm(sel, startEA, endEA, name, classname))
+//		loader_failure();
+	
+	segment_t s;
+	s.start_ea = startEA;
+	s.end_ea = endEA;
+	s.sel = sel;
+	s.bitness = 1;			// 32bit
+	switch (align)
+	{
+	case 1:		s.align = saRelByte; break;
+	case 2:		s.align = saRelWord; break;
+	case 4:		s.align = saRelDble; break;
+	case 8:		s.align = saRelQword; break;
+	case 16:	s.align = saRelPara; break;
+	case 32:	s.align = saRel32Bytes; break;
+	case 64:	s.align = saRel64Bytes; break;
+	case 128:	s.align = saRel128Bytes; break;
+	case 256:	s.align = saRelPage; break;
+	case 512:	s.align = saRel512Bytes; break;
+	case 1024:	s.align = saRel1024Bytes; break;
+	case 2048:	s.align = saRel2048Bytes; break;
+	case 4096:	s.align = saRel4K; break;
+	default:	s.align = saRelDble; break;
+	}
+	s.comb = scPub;		// Public. Combine by appending at an offset that meets the alignment requirement
+	s.perm = perms;		// Segment permissions (0-no information)
+	s.flags = SFL_LOADER;	// the segment created by the loader
+
+	// r26 - r31
+//	for(int i=0; i<=31-26; i++)
+//		s.defsr[i] = 0;
+	set_selector(sel, 0);
+	if (!add_segm_ex(&s, name, classname, ADDSEG_OR_DIE | ADDSEG_NOTRUNC | ADDSEG_NOSREG))
+		loader_failure("Error adding segment!\n");
+
+	s.update();
 }
 
 int load_sections(u8 *buf, Prx_info *prx)
@@ -140,6 +177,13 @@ int load_sections(u8 *buf, Prx_info *prx)
 		if ((sh->sh_flags& SHF_ALLOC) == 0)
 			continue;
 		
+		u32 flags = sh->sh_flags;
+		u32 sect_flags = 0;
+		if (flags & SHF_ALLOC)		sect_flags |= SEGPERM_READ;
+		if (flags & SHF_WRITE)		sect_flags |= SEGPERM_WRITE;
+		if (flags & SHF_EXECINSTR)	sect_flags |= SEGPERM_EXEC;
+		u32 sect_align = sh->sh_addralign;
+
 		mem2base(buf + sh->sh_offset, sh->sh_addr + prx->base_addr, sh->sh_addr + sh->sh_size + prx->base_addr, -1);
 		if (sh->sh_flags & SHF_EXECINSTR)
 			create32(0, sh->sh_addr + prx->base_addr, sh->sh_addr + sh->sh_size + prx->base_addr, prx->secname[i], CLASS_CODE);
@@ -164,11 +208,18 @@ int load_programs(u8 *buf, Prx_info *prx)
 		if (ph->p_filesz == 0)
 			continue;
 
+		u32 flags = ph->p_flags;
+		u32 sect_flags = 0;
+		if (flags & PF_R)	sect_flags |= SEGPERM_READ;
+		if (flags & PF_W)	sect_flags |= SEGPERM_WRITE;
+		if (flags & PF_X)	sect_flags |= SEGPERM_EXEC;
+		u32 sect_align = ph->p_align;
+		
 		mem2base(buf + ph->p_offset, ph->p_vaddr + prx->base_addr, ph->p_vaddr + ph->p_filesz + prx->base_addr, -1);
 		if (ph->p_flags & PF_X)
-			create32(0, ph->p_vaddr + prx->base_addr, ph->p_vaddr + ph->p_filesz + prx->base_addr, ".text", CLASS_CODE);
+			create32(0, ph->p_vaddr + prx->base_addr, ph->p_vaddr + ph->p_filesz + prx->base_addr, ".text", CLASS_CODE, sect_flags, sect_align);
 		else
-			create32(0, ph->p_vaddr + prx->base_addr, ph->p_vaddr + ph->p_filesz + prx->base_addr, ".data", CLASS_DATA);
+			create32(0, ph->p_vaddr + prx->base_addr, ph->p_vaddr + ph->p_filesz + prx->base_addr, ".data", CLASS_DATA, sect_flags, sect_align);
 		s = getseg(ph->p_vaddr + prx->base_addr);
 		set_segm_addressing(s, 1);
 	}
@@ -195,7 +246,7 @@ int create_bss(Prx_info *prx)
 		}
 	}
 
-	create32(0, bss_addr + prx->base_addr, bss_addr + prx->base_addr + bss_size, ".bss", CLASS_BSS);
+	create32(0, bss_addr + prx->base_addr, bss_addr + prx->base_addr + bss_size, ".bss", CLASS_BSS, SEGPERM_READ|SEGPERM_WRITE, 1);
 
 	return 0;
 }
@@ -1228,6 +1279,30 @@ static void idaapi load_file(linput_t *li, ushort neflag, const char * /*fname*/
 		if (!set_processor_type("psp", SETPROC_LOADER_NON_FATAL))
 			set_processor_type("mipsl", SETPROC_LOADER);
 	}
+
+	// set compiler info
+	compiler_info_t compiler_info = { 0 };
+	compiler_info.id = COMP_GNU;
+	compiler_info.cm = CM_CC_FASTCALL | CM_M_NN | CM_N32_F48;
+	compiler_info.size_i = 4;
+	compiler_info.size_b = 1;
+	compiler_info.size_e = 4;
+	compiler_info.defalign = 0;
+	compiler_info.size_s = 2;
+	compiler_info.size_l = 4;
+	compiler_info.size_ll = 8;
+	// It seems the PSP ABI is actually some custom sony "mips eabi" thing,
+	// but IDA only lets us choose between o32 and n32.
+	//   o32 has 32bit registers and supports up to 4 registers as params for functions.
+	//   n32 has 64bit registers and supports up to 8 registers as params for functions.
+	// I chose n32 since it will show params for functions correctly.
+	// It will however show 64bit values for immediate values which will look
+	// weird for immediate values that have the upper bit set.
+	// This means that you will see:
+	//   some_var = 0xFFFFFFFF80000000
+	// instead of
+	//   some_var = 0x80000000
+	set_compiler(compiler_info, SETCOMP_OVERRIDE, "n32");
 
 	load_nid_tbl(&prx);
 
