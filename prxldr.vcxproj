@@ -86,7 +86,7 @@
     </PreBuildEvent>
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>__NT__;__X64__;__IDP__;USE_STANDARD_FILE_FUNCTIONS;USE_DANGEROUS_FUNCTIONS;WIN32;_DEBUG;_WINDOWS;__NT__;__IDP__;%(PreprocessorDefinitions);_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
+      <PreprocessorDefinitions>__NT__;__X64__;__IDP__;USE_STANDARD_FILE_FUNCTIONS;USE_DANGEROUS_FUNCTIONS;WIN32;_DEBUG;_WINDOWS;__NT__;__IDP__;%(PreprocessorDefinitions);_CRT_SECURE_NO_WARNINGS;_DEBUG</PreprocessorDefinitions>
       <MinimalRebuild>false</MinimalRebuild>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
@@ -112,7 +112,7 @@
     </PreBuildEvent>
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>__NT__;__X64__;__EA64__;__IDP__;USE_STANDARD_FILE_FUNCTIONS;USE_DANGEROUS_FUNCTIONS;WIN32;_DEBUG;_WINDOWS;__NT__;__IDP__;%(PreprocessorDefinitions);_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
+      <PreprocessorDefinitions>__NT__;__X64__;__EA64__;__IDP__;USE_STANDARD_FILE_FUNCTIONS;USE_DANGEROUS_FUNCTIONS;WIN32;_DEBUG;_WINDOWS;__NT__;__IDP__;%(PreprocessorDefinitions);_CRT_SECURE_NO_WARNINGS;_DEBUG</PreprocessorDefinitions>
       <MinimalRebuild>false</MinimalRebuild>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
@@ -135,7 +135,7 @@
     <ClCompile>
       <Optimization>MaxSpeed</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>__NT__;__X64__;__IDP__;USE_STANDARD_FILE_FUNCTIONS;USE_DANGEROUS_FUNCTIONS;WIN32;NDEBUG;_WINDOWS;__NT__;__IDP__;%(PreprocessorDefinitions);_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
+      <PreprocessorDefinitions>__NT__;__X64__;__IDP__;USE_STANDARD_FILE_FUNCTIONS;USE_DANGEROUS_FUNCTIONS;WIN32;NDEBUG;_WINDOWS;__NT__;__IDP__;%(PreprocessorDefinitions);_CRT_SECURE_NO_WARNINGS;NDEBUG</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <FunctionLevelLinking>true</FunctionLevelLinking>
@@ -159,7 +159,7 @@
     <ClCompile>
       <Optimization>MaxSpeed</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>__NT__;__X64__;__EA__;__IDP__;USE_STANDARD_FILE_FUNCTIONS;USE_DANGEROUS_FUNCTIONS;WIN32;NDEBUG;_WINDOWS;__NT__;__IDP__;%(PreprocessorDefinitions);_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
+      <PreprocessorDefinitions>__NT__;__X64__;__EA__;__IDP__;USE_STANDARD_FILE_FUNCTIONS;USE_DANGEROUS_FUNCTIONS;WIN32;NDEBUG;_WINDOWS;__NT__;__IDP__;%(PreprocessorDefinitions);_CRT_SECURE_NO_WARNINGS;NDEBUG</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <FunctionLevelLinking>true</FunctionLevelLinking>

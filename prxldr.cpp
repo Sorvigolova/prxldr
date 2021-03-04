@@ -1120,6 +1120,13 @@ int load_module_info(u8 *buf, Prx_info *prx)
 	return 0;
 }
 
+char* better_strncpy(char* strDest, const char* strSource, size_t count)
+{
+	strncpy(strDest, strSource, count);
+	strDest[count] = '\0';
+	return strDest;
+}
+
 int load_single_lib_nids(Prx_info *prx, u8 *start, u8 *end, size_t idx)
 {
 	char nid_str[64];
@@ -1147,14 +1154,13 @@ int load_single_lib_nids(Prx_info *prx, u8 *start, u8 *end, size_t idx)
 		s = (u8 *)strstr((char *)p, "</NID>");
 		if (q == NULL || s == NULL)
 			return -2;
-		strncpy(nid_str, (const char*)q + 5, s - q - 5);
-		nid_str[sizeof(nid_str) - 1] = '\0';
+		better_strncpy(nid_str, (const char*)q + 5, s - q - 5);
 		prx->plibnid[idx].pNid[i].nid = strtoul(nid_str, NULL, 16);
 		p = s;
 		q = (u8 *)strstr((char *)p, "<NAME>");
 		s = (u8 *)strstr((char *)p, "</NAME>");
 		memset(prx->plibnid[idx].pNid[i].name, 0, sizeof(prx->plibnid[idx].pNid[i].name));
-		strncpy(prx->plibnid[idx].pNid[i].name, (const char*)q + 6, s - q - 6);
+		better_strncpy(prx->plibnid[idx].pNid[i].name, (const char*)q + 6, s - q - 6);
 		p = s;
 	}
 	return 0;
@@ -1185,7 +1191,7 @@ size_t load_lib_nids(Prx_info *prx, u8 *start, u8 *end)
 		load_single_lib_nids(prx, p, q, i);
 		s = (u8 *)strstr((char *)p, "<NAME>");
 		t = (u8 *)strstr((char *)p, "</NAME>");
-		strncpy(prx->plibnid[i].name, (const char*)s + 6, t - s - 6);
+		better_strncpy(prx->plibnid[i].name, (const char*)s + 6, t - s - 6);
 		p = q + 1;
 	}
 
@@ -1224,6 +1230,21 @@ size_t load_lib_nids(Prx_info *prx, u8 *start, u8 *end)
 	return lib_cnt;
 }
 
+// print out all nids to debug nid info loading
+void print_nid_table(Prx_info* prx)
+{
+	for (size_t lib_idx = 0; lib_idx < prx->lib_cnt; lib_idx++)
+	{
+		LibNidEntry* p_lib = &prx->plibnid[lib_idx];
+		msg("%s\n", p_lib->name);
+		for (size_t nid_idx = 0; nid_idx < p_lib->cnt; nid_idx++)
+		{
+			NidEntry* p_nid = &p_lib->pNid[nid_idx];
+			msg("    %08X : %s\n", p_nid->nid, p_nid->name);
+		}
+	}
+}
+
 int load_nid_tbl(Prx_info *prx)
 {
 	char xml_path[256];
@@ -1234,7 +1255,8 @@ int load_nid_tbl(Prx_info *prx)
 
 	/* const char * get_plugins_path(void); failed to link, not in lib ida.a ida.lib */
 	/*path = get_plugins_path();*/
-	sprintf(xml_path, "%s\\%s", idadir(LDR_SUBDIR), "psplibdoc.xml");
+	snprintf(xml_path, sizeof(xml_path), "%s\\%s", idadir(LDR_SUBDIR), "psplibdoc.xml");
+	xml_path[sizeof(xml_path) - 1] = '\0';
 	fp = fopen(xml_path, "rb");
 	if (NULL == fp) {
 		fname = ask_file(0, "*.xml", "select psplibdoc.xml file\n");
@@ -1247,13 +1269,18 @@ int load_nid_tbl(Prx_info *prx)
 	fseek(fp, 0, SEEK_END);
 	filesize = ftell(fp);
 	fseek(fp, 0, SEEK_SET);
-	buf = (u8*)qalloc(filesize);
+	buf = (u8*)qalloc(filesize+1);
 	fread(buf, filesize, 1, fp);
+	buf[filesize] = '\0';
 	fclose(fp);
 	prx->lib_cnt = load_lib_nids(prx, buf, buf + filesize);
+#ifdef _DEBUG
+	print_nid_table(prx);
+#endif
 	qfree(buf);
 	return 0;
 }
+
 
 //----------------------------------------------------------------------
 static int idaapi accept_file(qstring *fileformatname, qstring *processor, linput_t *li, const char *filename)
