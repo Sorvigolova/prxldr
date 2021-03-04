@@ -1,7 +1,6 @@
 # PSP prxldr plugin for IDA
 
 This is an updated version of prxldr for IDA v7.5 sp3.
-xorloser has not actually tested this.
 
 
 ## Install
@@ -10,11 +9,10 @@ If you also copy the file "psplibdoc.xml" into the "IDA/loaders" directory this 
 
 
 ## Credits
-xyzz wrote prxldr
-balika011 updated prxldr for a newer version of IDA
-xorloser updated prxldr for IDA v7.5 sp3, fixed some 32bit pointer stuff and added decompiler setup (requires MIPS hexrays decompiler to decompile).
-
-thecobra created the bundled psplibdoc.xml in the releases zip (afaik)
+* xyzz wrote prxldr
+* balika011 updated prxldr for a newer version of IDA
+* xorloser updated prxldr for IDA v7.5 sp3, fixed some 32bit pointer stuff and added decompiler setup (requires MIPS hexrays decompiler to decompile).
+* thecobra created the bundled psplibdoc.xml in the releases zip (afaik)
 
 
 ## Limitations
@@ -25,9 +23,11 @@ It seems the PSP ABI is actually some custom sony "mips eabi" thing,
 but IDA only lets us choose between o32 and n32.
 * o32 has 32bit registers and supports up to 4 registers as params for functions.
 * n32 has 64bit registers and supports up to 8 registers as params for functions.
+
 I chose n32 since it will show params for functions correctly.
 It will however show 64bit values for immediate values which will look
 weird for immediate values that have the upper bit set.
+
 This means that you will see:
 	```some_var = 0xFFFFFFFF80000000```
 instead of
